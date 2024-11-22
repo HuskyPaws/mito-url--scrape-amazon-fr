@@ -128,6 +128,10 @@ def scrape_data(url, api_key, max_retries=5, initial_delay=2):
 
             response = requests.post(scrapeowl_url, data, headers=headers)
             response_content = response.content.decode('unicode_escape')
+            tree = html.fromstring(response_content)
+            byline_info = tree.xpath('//a[@id="bylineInfo"]')
+            if byline_info:
+                data_dict["Brand Store URL"] = "https://www.amazon.fr" + byline_info[0].get('href')
             response_json = response.json()
 
             # Store raw response for debugging
@@ -146,14 +150,10 @@ def scrape_data(url, api_key, max_retries=5, initial_delay=2):
                         if element.get('results'):
                             data_dict["Product Title"] = element['results'][0].get('text', '').strip()
 
-                    # Handle brand store with detailed logging
+                    # Handle brand store
                     elif element['selector'] == "//a[@id='bylineInfo']":
-                        logging.info(f"Processing bylineInfo element: {json.dumps(element, indent=2)}")
                         if element.get('results'):
                             data_dict["Brand Store"] = element['results'][0].get('text', '').strip()
-                            if element['results'][0].get('attributes', {}).get('href'):
-                                href = element['results'][0]['attributes']['href']
-                                data_dict["Brand Store URL"] = "https://www.amazon.fr" + href
 
                     # Handle detail bullets
                     elif element['selector'] == "//div[@id='detailBullets_feature_div']":
@@ -335,7 +335,7 @@ if 'df' in st.session_state:
             data=debug_json,
             file_name='debug_data.json',
             mime='application/json',
-            key='debug_download'  # Added unique key
+            key='debug_download'
         )
 
 # Clear data button
