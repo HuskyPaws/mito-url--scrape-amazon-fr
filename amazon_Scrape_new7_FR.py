@@ -20,8 +20,9 @@ logging.basicConfig(level=logging.INFO,
                        logging.StreamHandler()
                    ])
 
-# Create a debug container in Streamlit
-debug_container = st.empty()
+# Initialize session state for debug info if it doesn't exist
+if 'debug_info' not in st.session_state:
+    st.session_state.debug_info = []
 
 # Set up cache database
 def get_db_connection():
@@ -87,7 +88,7 @@ def scrape_data(url, api_key, max_retries=5, initial_delay=2):
         "Brand Store URL": "Not found",
         "Item Model Number": "Not found",
         "Manufacturer": "Not found",
-        "Debug Info": {}  # Add debug information
+        "Debug Info": {}
     }
 
     retries = 0
@@ -131,113 +132,84 @@ def scrape_data(url, api_key, max_retries=5, initial_delay=2):
 
             # Store raw response for debugging
             data_dict["Debug Info"]["Raw Response"] = response_json
-            
-            # Log full response for debugging
-            logging.info(f"Full Response for URL {url}:")
+            logging.info(f"Raw ScrapeOwl Response for {url}:")
             logging.info(json.dumps(response_json, indent=2))
 
             if response.status_code == 200:
                 # Process each element from the API response
                 for element in response_json.get('data', []):
-                    # Store raw element data for debugging
+                    # Store element data for debugging
                     data_dict["Debug Info"][element['selector']] = element
 
                     # Handle product title
                     if element['selector'] == "//span[@id='productTitle']":
                         if element.get('results'):
                             data_dict["Product Title"] = element['results'][0].get('text', '').strip()
-                            logging.info(f"Found Product Title: {data_dict['Product Title']}")
 
                     # Handle brand store with detailed logging
                     elif element['selector'] == "//a[@id='bylineInfo']":
                         logging.info(f"Processing bylineInfo element: {json.dumps(element, indent=2)}")
                         if element.get('results'):
                             data_dict["Brand Store"] = element['results'][0].get('text', '').strip()
-                            logging.info(f"Found Brand Store: {data_dict['Brand Store']}")
-                            
-                            # Handle the href attribute with detailed logging
-                            if 'attributes' in element['results'][0]:
-                                logging.info(f"Found attributes: {element['results'][0]['attributes']}")
-                                if 'href' in element['results'][0]['attributes']:
-                                    href = element['results'][0]['attributes']['href']
-                                    data_dict["Brand Store URL"] = "https://www.amazon.fr" + href
-                                    logging.info(f"Found Brand Store URL: {data_dict['Brand Store URL']}")
-                                else:
-                                    logging.info("No href attribute found in bylineInfo")
-                            else:
-                                logging.info("No attributes found in bylineInfo results")
+                            if element['results'][0].get('attributes', {}).get('href'):
+                                href = element['results'][0]['attributes']['href']
+                                data_dict["Brand Store URL"] = "https://www.amazon.fr" + href
 
                     # Handle detail bullets
                     elif element['selector'] == "//div[@id='detailBullets_feature_div']":
                         if not element.get('error') and element.get('results'):
                             bullet_points = element['results'][0].get('text', '')
-                            logging.info(f"Found bullet points: {bullet_points}")
                             
                             # Check for manufacturer/brand with French terms
                             if "Marque" in bullet_points:
                                 try:
                                     manufacturer = bullet_points.split("Marque")[1].strip().split("\n")[0].strip()
                                     data_dict["Manufacturer"] = manufacturer.split(":")[1].strip() if ":" in manufacturer else manufacturer.strip()
-                                    logging.info(f"Found Manufacturer (Marque): {data_dict['Manufacturer']}")
                                 except (IndexError, KeyError) as e:
                                     logging.error(f"Error processing Marque: {str(e)}")
-                                    pass
+
                             elif "Fabricant" in bullet_points:
                                 try:
                                     manufacturer = bullet_points.split("Fabricant")[1].strip().split("\n")[0].strip()
                                     data_dict["Manufacturer"] = manufacturer.split(":")[1].strip() if ":" in manufacturer else manufacturer.strip()
-                                    logging.info(f"Found Manufacturer (Fabricant): {data_dict['Manufacturer']}")
                                 except (IndexError, KeyError) as e:
                                     logging.error(f"Error processing Fabricant: {str(e)}")
-                                    pass
 
                             # Check for model number
                             if "Numéro du modèle de l'article" in bullet_points:
                                 try:
                                     model_number = bullet_points.split("Numéro du modèle de l'article")[1].strip().split("\n")[0].strip()
                                     data_dict["Item Model Number"] = model_number.split(":")[1].strip() if ":" in model_number else model_number.strip()
-                                    logging.info(f"Found Model Number: {data_dict['Item Model Number']}")
                                 except (IndexError, KeyError) as e:
                                     logging.error(f"Error processing Model Number: {str(e)}")
-                                    pass
 
                     # Handle tech specs table
                     elif element['selector'] == "//table[@id='productDetails_techSpec_section_1']":
                         if element.get('results'):
                             table_data = element['results'][0].get('text', '')
-                            logging.info(f"Found tech specs table: {table_data}")
                             
-                            # Check for manufacturer in table
+                            # Check manufacturer in table
                             if "Marque" in table_data and data_dict["Manufacturer"] == "Not found":
                                 try:
                                     manufacturer = table_data.split("Marque")[1].strip().split("\n")[0].strip()
                                     data_dict["Manufacturer"] = manufacturer.split("\t")[1].strip() if "\t" in manufacturer else manufacturer.strip()
-                                    logging.info(f"Found Manufacturer in table: {data_dict['Manufacturer']}")
                                 except (IndexError, KeyError) as e:
-                                    logging.error(f"Error processing table Manufacturer: {str(e)}")
-                                    pass
+                                    logging.error(f"Error processing table Marque: {str(e)}")
+
                             elif "Fabricant" in table_data and data_dict["Manufacturer"] == "Not found":
                                 try:
                                     manufacturer = table_data.split("Fabricant")[1].strip().split("\n")[0].strip()
                                     data_dict["Manufacturer"] = manufacturer.split("\t")[1].strip() if "\t" in manufacturer else manufacturer.strip()
-                                    logging.info(f"Found Manufacturer (Fabricant) in table: {data_dict['Manufacturer']}")
                                 except (IndexError, KeyError) as e:
                                     logging.error(f"Error processing table Fabricant: {str(e)}")
-                                    pass
 
                             # Check for model number in table
                             if "Numéro du modèle de l'article" in table_data and data_dict["Item Model Number"] == "Not found":
                                 try:
                                     model_number = table_data.split("Numéro du modèle de l'article")[1].strip().split("\n")[0].strip()
                                     data_dict["Item Model Number"] = model_number.split("\t")[1].strip() if "\t" in model_number else model_number.strip()
-                                    logging.info(f"Found Model Number in table: {data_dict['Item Model Number']}")
                                 except (IndexError, KeyError) as e:
                                     logging.error(f"Error processing table Model Number: {str(e)}")
-                                    pass
-
-                # Log final data dictionary
-                logging.info(f"Final data dictionary for {url}:")
-                logging.info(json.dumps({k: v for k, v in data_dict.items() if k != "Debug Info"}, indent=2))
 
                 # Cache the data only if we found some valid information
                 cacheable_data = {k: v for k, v in data_dict.items() if k != "Debug Info"}
@@ -281,7 +253,7 @@ if st.button("Scrape Data"):
 
         progress_bar = st.progress(0)
         status_container = st.empty()
-        debug_info = []  # Store debug info for all URLs
+        debug_info = []
         
         with st.spinner("Scraping data..."):
             all_data = []
@@ -315,7 +287,7 @@ if st.button("Scrape Data"):
                             st.error(f"Error processing URL {urls[i]}: {result['Error']}")
                         
                         # Add a small delay between requests
-                        if i < len(urls) - 1:  # Don't delay after the last URL
+                        if i < len(urls) - 1:
                             time.sleep(1)
                             
                     except Exception as e:
@@ -326,8 +298,9 @@ if st.button("Scrape Data"):
             df = pd.DataFrame(all_data)
             df['Scrape Date'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
-            # Store the DataFrame in session state
+            # Store the DataFrame and debug info in session state
             st.session_state.df = df
+            st.session_state.debug_info = debug_info
             
             # Display the results
             st.success("Scraping completed!")
@@ -354,14 +327,15 @@ if 'df' in st.session_state:
         mime='text/csv',
     )
     
-    # Download debug data
-    if debug_info:
-        debug_json = json.dumps(debug_info, indent=2)
+    # Download debug data if available
+    if st.session_state.debug_info:
+        debug_json = json.dumps(st.session_state.debug_info, indent=2)
         st.sidebar.download_button(
             label="Download Debug Data",
             data=debug_json,
             file_name='debug_data.json',
             mime='application/json',
+            key='debug_download'  # Added unique key
         )
 
 # Clear data button
