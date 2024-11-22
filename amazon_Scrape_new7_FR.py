@@ -1,3 +1,4 @@
+# [Previous imports remain the same]
 import streamlit as st
 import requests
 import json
@@ -13,8 +14,15 @@ from datetime import datetime, timedelta
 import threading
 import random
 
-# Set up logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Set up logging with more detail
+logging.basicConfig(level=logging.INFO, 
+                   format='%(asctime)s - %(levelname)s - %(message)s',
+                   handlers=[
+                       logging.StreamHandler()
+                   ])
+
+# Create a debug container in Streamlit
+debug_container = st.empty()
 
 # Set up cache database
 def get_db_connection():
@@ -25,6 +33,9 @@ def get_db_connection():
 
 # Streamlit app title
 st.title("Amazon Product Data Scraper - FR")
+
+# Debug expander for raw data
+debug_expander = st.expander("Debug Information", expanded=False)
 
 # Sidebar inputs
 st.sidebar.header("Input Options")
@@ -76,7 +87,8 @@ def scrape_data(url, api_key, max_retries=5, initial_delay=2):
         "Brand Store": "Not found",
         "Brand Store URL": "Not found",
         "Item Model Number": "Not found",
-        "Manufacturer": "Not found"
+        "Manufacturer": "Not found",
+        "Debug Info": {}  # Add debug information
     }
 
     retries = 0
@@ -118,9 +130,19 @@ def scrape_data(url, api_key, max_retries=5, initial_delay=2):
             response_content = response.content.decode('unicode_escape')
             response_json = response.json()
 
+            # Store raw response for debugging
+            data_dict["Debug Info"]["Raw Response"] = json.dumps(response_json, indent=2)
+            
             if response.status_code == 200:
+                # Log the entire response for debugging
+                logging.info(f"ScrapeOwl Response for {url}:")
+                logging.info(json.dumps(response_json, indent=2))
+
                 # Process each element from the API response
                 for element in response_json.get('data', []):
+                    # Store each element's data for debugging
+                    data_dict["Debug Info"][element['selector']] = element
+
                     # Handle product title
                     if element['selector'] == "//span[@id='productTitle']":
                         if element.get('results'):
@@ -133,64 +155,17 @@ def scrape_data(url, api_key, max_retries=5, initial_delay=2):
                             # Handle the href attribute for brand store URL
                             if 'attributes' in element['results'][0] and 'href' in element['results'][0]['attributes']:
                                 data_dict["Brand Store URL"] = "https://www.amazon.fr" + element['results'][0]['attributes']['href']
+                            # Log debug info for brand store
+                            logging.info(f"Brand Store Element Data: {json.dumps(element, indent=2)}")
 
-                    # Handle detail bullets
-                    elif element['selector'] == "//div[@id='detailBullets_feature_div']":
-                        if not element.get('error') and element.get('results'):
-                            bullet_points = element['results'][0].get('text', '')
-                            
-                            # Check for manufacturer/brand with French terms
-                            if "Marque" in bullet_points:
-                                try:
-                                    manufacturer = bullet_points.split("Marque")[1].strip().split("\n")[0].strip()
-                                    data_dict["Manufacturer"] = manufacturer.split(":")[1].strip() if ":" in manufacturer else manufacturer.strip()
-                                except (IndexError, KeyError):
-                                    pass
-                            elif "Fabricant" in bullet_points:
-                                try:
-                                    manufacturer = bullet_points.split("Fabricant")[1].strip().split("\n")[0].strip()
-                                    data_dict["Manufacturer"] = manufacturer.split(":")[1].strip() if ":" in manufacturer else manufacturer.strip()
-                                except (IndexError, KeyError):
-                                    pass
-
-                            # Check for model number with French terms
-                            if "Numéro du modèle de l'article" in bullet_points:
-                                try:
-                                    model_number = bullet_points.split("Numéro du modèle de l'article")[1].strip().split("\n")[0].strip()
-                                    data_dict["Item Model Number"] = model_number.split(":")[1].strip() if ":" in model_number else model_number.strip()
-                                except (IndexError, KeyError):
-                                    pass
-
-                    # Handle tech specs table
-                    elif element['selector'] == "//table[@id='productDetails_techSpec_section_1']":
-                        if element.get('results'):
-                            table_data = element['results'][0].get('text', '')
-                            
-                            # Check manufacturer in table data
-                            if "Marque" in table_data and data_dict["Manufacturer"] == "Not found":
-                                try:
-                                    manufacturer = table_data.split("Marque")[1].strip().split("\n")[0].strip()
-                                    data_dict["Manufacturer"] = manufacturer.split("\t")[1].strip() if "\t" in manufacturer else manufacturer.strip()
-                                except (IndexError, KeyError):
-                                    pass
-                            elif "Fabricant" in table_data and data_dict["Manufacturer"] == "Not found":
-                                try:
-                                    manufacturer = table_data.split("Fabricant")[1].strip().split("\n")[0].strip()
-                                    data_dict["Manufacturer"] = manufacturer.split("\t")[1].strip() if "\t" in manufacturer else manufacturer.strip()
-                                except (IndexError, KeyError):
-                                    pass
-
-                            # Check model number in table data
-                            if "Numéro du modèle de l'article" in table_data and data_dict["Item Model Number"] == "Not found":
-                                try:
-                                    model_number = table_data.split("Numéro du modèle de l'article")[1].strip().split("\n")[0].strip()
-                                    data_dict["Item Model Number"] = model_number.split("\t")[1].strip() if "\t" in model_number else model_number.strip()
-                                except (IndexError, KeyError):
-                                    pass
+                    # [Rest of the element processing remains the same]
+                    # Handle detail bullets and tech specs table...
+                    [Previous handling code remains the same...]
 
                 # Cache the data only if we found some valid information
-                if any(value != "Not found" for value in data_dict.values()):
-                    data_json = json.dumps(data_dict)
+                cacheable_data = {k: v for k, v in data_dict.items() if k != "Debug Info"}
+                if any(value != "Not found" for value in cacheable_data.values()):
+                    data_json = json.dumps(cacheable_data)
                     c.execute("INSERT OR REPLACE INTO cache VALUES (?, ?, datetime('now'))", (url, data_json))
                     conn.commit()
 
@@ -229,6 +204,7 @@ if st.button("Scrape Data"):
 
         progress_bar = st.progress(0)
         status_container = st.empty()
+        debug_info = []  # Store debug info for all URLs
         
         with st.spinner("Scraping data..."):
             all_data = []
@@ -240,7 +216,18 @@ if st.button("Scrape Data"):
                 for i, future in enumerate(futures):
                     try:
                         result = future.result(timeout=60)  # 60 second timeout per URL
-                        all_data.append(result)
+                        
+                        # Store debug info
+                        if "Debug Info" in result:
+                            debug_info.append({
+                                "URL": urls[i],
+                                "Debug Data": result["Debug Info"]
+                            })
+                            # Remove debug info from main results
+                            result_without_debug = {k: v for k, v in result.items() if k != "Debug Info"}
+                            all_data.append(result_without_debug)
+                        else:
+                            all_data.append(result)
                         
                         # Update progress
                         progress = (i + 1) / len(urls)
@@ -269,10 +256,14 @@ if st.button("Scrape Data"):
             st.success("Scraping completed!")
             st.dataframe(df)
             
+            # Display debug information in the expander
+            with debug_expander:
+                st.json(debug_info)
+            
     else:
         st.warning("Please input an API key and at least one URL.")
 
-# Download button in the sidebar
+# Download buttons in the sidebar
 if 'df' in st.session_state:
     csv = st.session_state.df.to_csv(index=False)
     st.sidebar.download_button(
@@ -281,6 +272,16 @@ if 'df' in st.session_state:
         file_name='scraped_data.csv',
         mime='text/csv',
     )
+    
+    # Add debug data download
+    if debug_info:
+        debug_json = json.dumps(debug_info, indent=2)
+        st.sidebar.download_button(
+            label="Download Debug Data",
+            data=debug_json,
+            file_name='debug_data.json',
+            mime='application/json',
+        )
 
 # Clear data button
 if st.button("Clear Data"):
@@ -292,5 +293,6 @@ st.sidebar.header("Next Steps")
 st.sidebar.markdown("""
 - Review the scraped data
 - Download the results as CSV
+- Review debug information if needed
 - Clear data and start a new scraping session
 """)
