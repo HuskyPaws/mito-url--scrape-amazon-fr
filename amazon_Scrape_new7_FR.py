@@ -130,8 +130,9 @@ def scrape_data(url, api_key, max_retries=5, initial_delay=2):
                     elif element['selector'] == "//a[@id='bylineInfo']":
                         if element.get('results'):
                             data_dict["Brand Store"] = element['results'][0].get('text', '').strip()
-                            if element['results'][0].get('attributes', {}).get('href'):
-                                data_dict["Brand Store URL"] = element['results'][0]['attributes']['href']
+                            # Handle the href attribute for brand store URL
+                            if 'attributes' in element['results'][0] and 'href' in element['results'][0]['attributes']:
+                                data_dict["Brand Store URL"] = "https://www.amazon.fr" + element['results'][0]['attributes']['href']
 
                     # Handle detail bullets
                     elif element['selector'] == "//div[@id='detailBullets_feature_div']":
@@ -159,12 +160,6 @@ def scrape_data(url, api_key, max_retries=5, initial_delay=2):
                                     data_dict["Item Model Number"] = model_number.split(":")[1].strip() if ":" in model_number else model_number.strip()
                                 except (IndexError, KeyError):
                                     pass
-                            elif "Número de producto" in bullet_points:
-                                try:
-                                    model_number = bullet_points.split("Número de producto")[1].strip().split("\n")[0].strip()
-                                    data_dict["Item Model Number"] = model_number.split(":")[1].strip() if ":" in model_number else model_number.strip()
-                                except (IndexError, KeyError):
-                                    pass
 
                     # Handle tech specs table
                     elif element['selector'] == "//table[@id='productDetails_techSpec_section_1']":
@@ -178,29 +173,17 @@ def scrape_data(url, api_key, max_retries=5, initial_delay=2):
                                     data_dict["Manufacturer"] = manufacturer.split("\t")[1].strip() if "\t" in manufacturer else manufacturer.strip()
                                 except (IndexError, KeyError):
                                     pass
-                            elif "Fabricante" in table_data and data_dict["Manufacturer"] == "Not found":
+                            elif "Fabricant" in table_data and data_dict["Manufacturer"] == "Not found":
                                 try:
-                                    manufacturer = table_data.split("Fabricante")[1].strip().split("\n")[0].strip()
+                                    manufacturer = table_data.split("Fabricant")[1].strip().split("\n")[0].strip()
                                     data_dict["Manufacturer"] = manufacturer.split("\t")[1].strip() if "\t" in manufacturer else manufacturer.strip()
                                 except (IndexError, KeyError):
                                     pass
 
                             # Check model number in table data
-                            if "Nombre del modelo" in table_data and data_dict["Item Model Number"] == "Not found":
-                                try:
-                                    model_number = table_data.split("Nombre del modelo")[1].strip().split("\n")[0].strip()
-                                    data_dict["Item Model Number"] = model_number.split("\t")[1].strip() if "\t" in model_number else model_number.strip()
-                                except (IndexError, KeyError):
-                                    pass
-                            elif "Numéro du modèle de l'article" in table_data and data_dict["Item Model Number"] == "Not found":
+                            if "Numéro du modèle de l'article" in table_data and data_dict["Item Model Number"] == "Not found":
                                 try:
                                     model_number = table_data.split("Numéro du modèle de l'article")[1].strip().split("\n")[0].strip()
-                                    data_dict["Item Model Number"] = model_number.split("\t")[1].strip() if "\t" in model_number else model_number.strip()
-                                except (IndexError, KeyError):
-                                    pass
-                            elif "Número de producto" in table_data and data_dict["Item Model Number"] == "Not found":
-                                try:
-                                    model_number = table_data.split("Número de producto")[1].strip().split("\n")[0].strip()
                                     data_dict["Item Model Number"] = model_number.split("\t")[1].strip() if "\t" in model_number else model_number.strip()
                                 except (IndexError, KeyError):
                                     pass
